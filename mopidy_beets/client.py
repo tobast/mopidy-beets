@@ -5,14 +5,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from mopidy import httpclient
-
 import requests
+from mopidy import httpclient
 from requests.exceptions import RequestException
 
 import mopidy_beets
 from mopidy_beets.translator import parse_album, parse_track
-
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +100,7 @@ class BeetsRemoteClient:
         )
         return self._parse_multiple_albums(albums)
 
-    def _get_objects_by_attribute(
-        self, base_path, attributes, exact_text, sort_fields
-    ):
+    def _get_objects_by_attribute(self, base_path, attributes, exact_text, sort_fields):
         """The beets web-api accepts queries like:
             /item/query/album_id:183/track:2
             /item/query/album:Foo
@@ -125,8 +121,6 @@ class BeetsRemoteClient:
         """
         # assemble the query string
         query_parts = []
-        # only used for 'exact_text'
-        exact_query_list = []
 
         def quote_and_encode(text):
             if isinstance(text, (int, float)):
@@ -140,57 +134,29 @@ class BeetsRemoteClient:
         for attribute in attributes:
             if isinstance(attribute, str):
                 query_parts.append(quote_and_encode(attribute))
-                exact_query_list.append((None, attribute))
             else:
                 # the beets API accepts upper and lower case, but always
                 # returns lower case attributes
                 key = attribute[0].lower()
                 value = attribute[1]
+                is_exact = exact_text and isinstance(value, str)
                 query_parts.append(
-                    "{}:{}".format(
-                        quote_and_encode(key), quote_and_encode(value)
+                    "{}:{}{}".format(
+                        quote_and_encode(key),
+                        "=" if is_exact else "",
+                        quote_and_encode(value),
                     )
                 )
-                # Try to add a simple regex filter, if we look for a string.
-                # This will reduce the resource consumption of the query on
-                # the server side (and for our 'exact' matching below).
-                if exact_text and isinstance(value, str):
-                    regex_query = "^{}$".format(re.escape(value))
-                    beets_query = "{}::{}".format(
-                        quote_and_encode(key), quote_and_encode(regex_query)
-                    )
-                    logger.debug(
-                        "Beets - regular expression query: {}".format(
-                            beets_query
-                        )
-                    )
-                    query_parts.append(beets_query)
-                else:
-                    # in all other cases: use non-regex matching (if requested)
-                    exact_query_list.append((key, value))
         # add sorting fields
         for sort_field in sort_fields or []:
             if (len(sort_field) > 1) and (sort_field[-1] in ("-", "+")):
                 query_parts.append(quote_and_encode(sort_field))
             else:
-                logger.info(
-                    "Beets - invalid sorting field ignore: %s", sort_field
-                )
+                logger.info("Beets - invalid sorting field ignore: %s", sort_field)
         query_string = "/".join(query_parts)
         query_url = "{0}/query/{1}".format(base_path, query_string)
         logger.debug("Beets query: %s", query_url)
         items = self._get(query_url)["results"]
-        if exact_text:
-            # verify that text attributes do not just test 'is in', but match
-            # equality
-            for key, value in exact_query_list:
-                if key is None:
-                    # the value must match one of the item attributes
-                    items = [item for item in items if value in item.values()]
-                else:
-                    # filtering is necessary only for text based attributes
-                    if items and isinstance(items[0][key], str):
-                        items = [item for item in items if item[key] == value]
         return items
 
     @cache()
@@ -215,9 +181,7 @@ class BeetsRemoteClient:
         if not hasattr(self, "__legacy_beets_api_detected"):
             try:
                 result = self._get(
-                    "{0}/values/{1}?sort_key={2}".format(
-                        base_url, field, sort_field
-                    ),
+                    "{0}/values/{1}?sort_key={2}".format(base_url, field, sort_field),
                     raise_not_found=True,
                 )
             except KeyError:
