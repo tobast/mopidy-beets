@@ -88,17 +88,51 @@ class BeetsRemoteClient:
 
     @cache()
     def get_tracks_by(self, attributes, exact_text, sort_fields):
-        tracks = self._get_objects_by_attribute(
+        tracks = self._get_objects_by_attribute_fixdate(
             "/item", attributes, exact_text, sort_fields
         )
         return self._parse_multiple_tracks(tracks)
 
     @cache()
     def get_albums_by(self, attributes, exact_text, sort_fields):
-        albums = self._get_objects_by_attribute(
+        albums = self._get_objects_by_attribute_fixdate(
             "/album", attributes, exact_text, sort_fields
         )
         return self._parse_multiple_albums(albums)
+
+    def _get_objects_by_attribute_fixdate(
+        self, base_path, attributes, exact_text, sort_fields
+    ):
+        """Proxies queries to _get_objects_by_attribute, fetching by
+        original_{year,month,day} if available, falling back to {year,month,day}. Does
+        not make any change if the query does not contain a date."""
+
+        origdate_attributes = []
+        found_date = False
+
+        for attr in attributes:
+            if isinstance(attr, str):
+                origdate_attributes.append(attr)
+            else:
+                key, val = attr
+                if key in ("year", "month", "day"):
+                    found_date = True
+                    origdate_attributes.append((f"original_{key}", val))
+                else:
+                    origdate_attributes.append(attr)
+
+        if found_date:
+            origdate_results = self._get_objects_by_attribute(
+                base_path, origdate_attributes, exact_text, sort_fields
+            )
+            if origdate_results:
+                return origdate_results
+
+        # If there is no matching on date, or original_* attributes did not yield a
+        # result, run the original query
+        return self._get_objects_by_attribute(
+            base_path, attributes, exact_text, sort_fields
+        )
 
     def _get_objects_by_attribute(self, base_path, attributes, exact_text, sort_fields):
         """The beets web-api accepts queries like:
@@ -157,6 +191,7 @@ class BeetsRemoteClient:
         query_url = "{0}/query/{1}".format(base_path, query_string)
         logger.debug("Beets query: %s", query_url)
         items = self._get(query_url)["results"]
+
         return items
 
     @cache()
